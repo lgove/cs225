@@ -1,0 +1,94 @@
+\documentclass{article}
+
+\usepackage{microtype}
+
+\usepackage{amsmath}
+\usepackage{mathtools}
+
+\title{CS225 Spring 2018---Final Project Proposal \\
+\large https://github.com/lgove/cs225}
+\author{
+Madison Anderson \\ \small{\texttt{git:@mander34}}
+\and LeAnn Gove \\ \small{\texttt{git:@lgove}}
+\and Nikki Allen \\ \small{\texttt{git:@nikkiallen}}
+}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section*{Project: System F with Bounded Quantification}
+
+We propose to implement a semantics and type checker for System F extended with
+bounded quantification (sum, pack, and unpack).
+
+\paragraph{Base Language}
+
+We will work with simply typed lambda calculus with booleans, natural numbers,
+let-binding, and products as the base language.
+
+\paragraph{Extended Language}
+
+We will extend this language with the features of System F and bounded quantification. This consists of a new type:
+\begin{enumerate}
+\item A universal type variable, written $\forall X< : T.T$
+\item An existential type variable, written { $\exists X < :T,t $}
+\end{enumerate}
+a new value:
+\begin{enumerate}
+\item Type abstraction, written $\lambda X.< : T. t$
+
+
+\end{enumerate}
+
+
+\paragraph{Applications}
+
+Bounded quantification, in itself, is equivalent to combining Subtyping and Universal Quantification. This substantially increases both the expressive power of the system and its metatheoretic complexity. The calculus used in this language, written F $<$: ("F sub"), has played a large role in programming language research since it was developed in the 1980's, particularly in relation to the studies on the foundations of object-oriented programming.
+
+\paragraph{Project Goals}
+
+For this project, we plan to complete:
+\begin{enumerate}
+\item A small-step semantics for System F extended with bounded quantification
+\item A type checker for System F extended with bounded quantification
+\end{enumerate}
+
+\paragraph{Expected Challenges}
+
+We expect the need to support to make the semantics as we have not explored this topic in depth in class and thus don't have clear notes and only the textbook as reference material. We also expect the implementation of the typechecker to be more challenging than what we have seen in class thus far.
+
+\paragraph{Timeline and Milestones}
+
+By the checkpoint we hope to have completed:
+\begin{enumerate}
+\item A prototype implementation of the small-step semantics
+\item A suite of test-cases for the small-step semantics and well-typed relation
+\item One medium-sized program encoded in the language which demonstrates a
+real-world application of the language
+\end{enumerate}
+
+\noindent
+By the final project draft we hope to have completed:
+\begin{enumerate}
+\item The full implementation of small-step semantics and type checking
+\item A fully comprehensive test suite, with all tests passing
+\item The medium-sized program running through both the semantics and type
+checker implementation
+\item A draft writeup that explains the on-paper formalism of our
+implementation
+\item A draft of a presentation with 5 slides as the starting point for our
+in-class presentation
+\end{enumerate}
+
+\noindent
+By the final project submissions we hope to have completed:
+\begin{enumerate}
+\item The final writeup and presentation
+\item Any remaining implementation work that was missing in the final project
+draft
+\end{enumerate}
+
+\end{document}
+
+
