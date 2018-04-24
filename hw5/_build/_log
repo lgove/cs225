@@ -1,0 +1,31 @@
+### Starting build.
+# Target: hw5.ml.depends, tags: { package(ppx_deriving.std), extension:ml, file:hw5.ml, ocaml, ocamldep, quiet, traverse }
+ ocamlfind ocamldep -package ppx_deriving.std -modules hw5.ml > hw5.ml.depends
+# Target: StringSetMap.ml.depends, tags: { package(ppx_deriving.std), extension:ml, file:StringSetMap.ml, ocaml, ocamldep, quiet, traverse }
+ ocamlfind ocamldep -package ppx_deriving.std -modules StringSetMap.ml > StringSetMap.ml.depends # cached
+# Target: Util.ml.depends, tags: { package(ppx_deriving.std), extension:ml, file:Util.ml, ocaml, ocamldep, quiet, traverse }
+ ocamlfind ocamldep -package ppx_deriving.std -modules Util.ml > Util.ml.depends # cached
+# Target: Util.cmo, tags: { package(ppx_deriving.std), byte, compile, extension:cmo, extension:ml, file:Util.cmo, file:Util.ml, implem, ocaml, quiet, traverse }
+ ocamlfind ocamlc -c -package ppx_deriving.std -o Util.cmo Util.ml # cached
+# Target: StringSetMap.cmo, tags: { package(ppx_deriving.std), byte, compile, extension:cmo, extension:ml, file:StringSetMap.cmo, file:StringSetMap.ml, implem, ocaml, quiet, traverse }
+ ocamlfind ocamlc -c -package ppx_deriving.std -o StringSetMap.cmo StringSetMap.ml # cached
+# Target: hw5.cmo, tags: { package(ppx_deriving.std), byte, compile, extension:cmo, extension:ml, file:hw5.cmo, file:hw5.ml, implem, ocaml, quiet, traverse }
+ ocamlfind ocamlc -c -package ppx_deriving.std -o hw5.cmo hw5.ml
++  ocamlfind ocamlc -c -package ppx_deriving.std -o hw5.cmo hw5.ml
+File "hw5.ml", line 271, characters 45-984:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+(Abstraction (_, _, _)|TyLam (_, _, _))
+File "hw5.ml", line 316, characters 59-1126:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+(Abstraction (_, _, _)|TyLam (_, _, _))
+File "hw5.ml", line 374, characters 60-1204:
+Warning 8: this pattern-matching is not exhaustive.
+Here is an example of a case that is not matched:
+(Abstraction (_, _, _)|TyLam (_, _, _))
+File "hw5.ml", line 717, characters 7-18:
+Error: This variant pattern is expected to have type result
+       The constructor Abstraction does not belong to type result
+Command exited with code 2.
+# Compilation unsuccessful.
