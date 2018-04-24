@@ -674,7 +674,11 @@ let rec step (e0 : exp) : result = match e0 with
            * v(e) —↛ *)
           | Stuck -> Stuck
           end
-
+        | TyLam(x, xt11, t12) ->
+          begin match step e2 with 
+            | Val(v2) -> esubst_t x v2 t12 
+            | _ -> raise TYPE_ERROR
+          end
       (* [Apply-Cong-1]
        * e₁ —→ e₁′
        * ⟹
