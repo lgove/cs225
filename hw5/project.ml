@@ -83,11 +83,12 @@ open StringSetMap
 type tvar = string
 [@@deriving show {with_path = false}]
 
-(* τ ∈ type ⩴ bool | nat | τ × τ | τ → τ | X | ∀X.τ | ∃X.τ
+(* τ ∈ type ⩴ bool | nat | top | τ × τ | τ → τ | X | ∀X.τ | ∃X.τ
  *)
 type ty =
   | Bool
   | Nat
+  | Top
   | Prod of ty * ty
   | Fun of ty * ty
   | TVar of tvar
@@ -132,7 +133,6 @@ type exp =
   | Pack of ty * exp * tvar * ty
   | Unpack of tvar * var * exp * exp
   | Abstraction of tvar * ty * exp
-  | TyLam of var * ty * exp
 [@@deriving show {with_path = false}]
 
 (*********************
@@ -152,6 +152,7 @@ type natval =
  *           | λ(x:τ).e
  *           | ΛX.e
  *           | ⟨*τ,v⟩ as ∃X.τ
+             | λX <:T.t
  *)
 type value =
   | VTrue
@@ -161,6 +162,7 @@ type value =
   | VLambda of var * ty * exp
   | VBigLambda of tvar * exp
   | VPack of ty * value * tvar * ty
+  | VAbstraction of tvar * ty * exp
 [@@deriving show {with_path = false}]
 
 (***********************************
@@ -192,6 +194,7 @@ let rec tfree_vars (t0 : ty) : string_set = match t0 with
   | TVar(xt) -> StringSet.of_list [xt]
   | Forall(xt,t) -> StringSet.remove xt (tfree_vars t)
   | Exists(xt,t) -> StringSet.remove xt (tfree_vars t)
+  | Top -> raise TODO
 
 (**************************
  * Substitution for types *
@@ -211,6 +214,7 @@ let rec trename (xt : tvar) (xt' : tvar) (t0 : ty) : ty = match t0 with
   | TVar(yt) -> if xt = yt then TVar(xt') else TVar(yt)
   | Forall(yt,t) -> if xt = yt then Forall(yt,t) else Forall(yt,trename xt xt' t)
   | Exists(yt,t) -> if xt = yt then Exists(yt,t) else Forall(yt,trename xt xt' t)
+  | Top -> raise TODO
 
 (* An auxiliary function:
  *
@@ -260,6 +264,7 @@ let rec tsubst (xt : tvar) (t' : ty) (t0 : ty) = match t0 with
       if xt = yt then Exists(xt,t) else 
       let (yt'',t'') = tfresh yt t' t in
       Exists(yt'',tsubst xt t' t'')
+  | Top -> raise TODO
 
 (**********************************
  * Free variables for expressions *
@@ -297,6 +302,7 @@ let rec efree_vars (e0 : exp) : string_set = match e0 with
       StringSet.union 
         (efree_vars e1)
         (StringSet.remove x (efree_vars e2))
+  | Abstraction(xt,t,e) -> efree_vars e
 
 (***********************************************
  * Substitution for expressions in expressions *
@@ -341,6 +347,7 @@ let rec esubst_e_i (x : var) (e' : exp) (e0 : exp) : exp = match e0 with
       if x = y
       then Unpack(xt,x,esubst_e_i x e' e1,e2)
       else Unpack(xt,y,esubst_e_i x e' e1,esubst_e_i x e' e2)
+  | Abstraction(yt,t,e) -> Abstraction(yt,t,esubst_e_i x e' e)
 
 exception NOT_CLOSED_ERROR
 
@@ -399,6 +406,10 @@ let rec esubst_t_i (xt : tvar) (t' : ty) (e0 : exp) : exp = match e0 with
       if xt = yt
       then Unpack(xt,x,esubst_t_i xt t' e1,e2)
       else Unpack(xt,x,esubst_t_i xt t' e1,esubst_t_i xt t' e2)
+  | Abstraction(yt,t,e) ->
+      if xt = yt
+      then Abstraction(xt,t,esubst_t_i xt t' e)
+      else Abstraction(xt,tsubst xt t' t,esubst_t_i xt t' e)
 
 (* A version of non-capture-avoiding substitution that raises an exception if
  * its required assumptions are not satisfied.
@@ -431,6 +442,7 @@ let rec exp_of_val (v0 : value) : exp = match v0 with
   | VLambda(x,t,e) -> Lambda(x,t,e)
   | VBigLambda(xt,e) -> BigLambda(xt,e)
   | VPack(t1,v,xt,t2) -> Pack(t1,exp_of_val v,xt,t2)
+  | VAbstraction(xt, ty, e) -> Abstraction(xt, ty, e)
 
 (* A result is either a value, an expression, or the symbol `stuck`.
  *
@@ -661,7 +673,6 @@ let rec step (e0 : exp) : result = match e0 with
                * v₁(v₂) —↛ *)
               | _ -> Stuck
               end
-
           (* [Apply-Cong-2]
            * e —→ e′
            * ⟹
@@ -674,18 +685,11 @@ let rec step (e0 : exp) : result = match e0 with
            * v(e) —↛ *)
           | Stuck -> Stuck
           end
-        | TyLam(x, xt11, t12) ->
-          begin match step e2 with 
-            | Val(v2) -> esubst_t x v2 t12 
-            | _ -> raise TYPE_ERROR
-          end
       (* [Apply-Cong-1]
        * e₁ —→ e₁′
        * ⟹
        * e₁(e₂) —→ e₁′(e₂) *)
       | Step(e1') -> Step(Apply(e1',e2))
-
-
       (* e₁ ∉ val
        * e₁ —↛
        * ⟹
@@ -703,6 +707,12 @@ let rec step (e0 : exp) : result = match e0 with
        * ⟹
        * v[τ] ∉ val
        * v[τ] —↛ *)
+      | Val(VAbstraction(xt,t,e')) -> Step(esubst_t xt t e')
+      (* | Val(VAbstraction(xt, t11, t12)) -> Step(tsubst xt (TVar(t)) t12) *)
+      (* ∄X,e. v = ΛX.e
+       * ⟹
+       * v[τ] ∉ val
+       * v[τ] —↛ *)
       | Val(_) -> Stuck
       (* [Type-Apply-Cong]
        * e —→ e′
@@ -715,11 +725,6 @@ let rec step (e0 : exp) : result = match e0 with
        * e[τ] ∉ val
        * e[τ] —↛ val *)
       | Stuck -> Stuck
-      (*
-        FINAL PROJECT RULE
-      *)
-      |Abstraction(xt, t11, t12) -> tsubst xt (TVar(t)) t12
-
       end
   | Pack(t1,e,xt,t2) -> begin match step e with
       (* ⟨*τ,v⟩ as ∃X.τ ∈ val *)
@@ -759,6 +764,7 @@ let rec step (e0 : exp) : result = match e0 with
        * let ⟨*X,x⟩ ≔ e₁ in e₂ —↛ *)
       | Stuck -> Stuck
       end
+ | Abstraction(xt,ty,e) -> Val(VAbstraction(xt,ty,e))
 
 (* The reflexive transitive closure of the small-step relation e —→* e *)
 let rec step_star (e : exp) : exp = match step e with
@@ -776,7 +782,7 @@ let rec step_star (e : exp) : exp = match step e with
  *
  * scope_ok S τ = true ⟺  S ⊢ τ
  *)
-let rec scope_ok (s : tscope) (t0 : ty) : bool = match t0 with
+(* let rec scope_ok (s : tscope) (t0 : ty) : bool = match t0 with
   (* [Bool]
    * S ⊢ bool *)
   | Bool -> true
@@ -819,7 +825,7 @@ let rec scope_ok (s : tscope) (t0 : ty) : bool = match t0 with
    * S ⊢ ∃X.τ *)
   | Exists(xt,t) -> let x = StringSet.singleton xt in
   let y = StringSet.union s x in
-  scope_ok y t
+  scope_ok y t *)
 
 
 (***********************
@@ -861,7 +867,7 @@ exception TYPE_ERROR
  *
  * infer S Γ e = τ ⟺  S , Γ ⊢ : τ
  *)
-let rec infer (s : tscope) (g : tenv) (e0 : exp) : ty = match e0 with
+(* let rec infer (s : tscope) (g : tenv) (e0 : exp) : ty = match e0 with
   (* [True]
    * S , Γ ⊢ true : bool *)
   | True -> Bool
@@ -1030,7 +1036,7 @@ else raise TYPE_ERROR
       if (scope_ok s t2) then t2 
      else raise TYPE_ERROR
       | _ -> raise TYPE_ERROR
-    end
+    end *)
 
 (***********
  * Testing *
@@ -1049,15 +1055,16 @@ let step_test_result (e : exp) : result test_result =
     | TYPE_ERROR -> TypeError
     | NOT_CLOSED_ERROR -> NotClosedError
 
-let infer_test_result (e : exp) : ty test_result =
+(* let infer_test_result (e : exp) : ty test_result =
   try
     R(infer StringSet.empty StringMap.empty e)
   with
     | TYPE_ERROR -> TypeError
-    | NOT_CLOSED_ERROR -> NotClosedError
+    | NOT_CLOSED_ERROR -> NotClosedError *)
 
 let step_tests : test_block =
-  let pid : exp = BigLambda("X",Lambda("x",TVar("X"),Var("x"))) in
+  let pid : exp = Abstraction("X",Bool,Lambda("x",TVar("X"),Var("x"))) in
+  (* let pid : exp = BigLambda("X",Lambda("x",TVar("X"),Var("x"))) in *)
   let pidid : exp = Lambda("x",Forall("X",Fun(TVar("X"),TVar("X"))),Var("x")) in
   let ppid : exp = BigLambda("X",pid) in
   let fiveo : exp = Pack(Nat,Pair(Zero,Lambda("x",Nat,Var("x"))),"X",Prod(TVar("X"),Fun(TVar("X"),TVar("X")))) in
@@ -1079,7 +1086,7 @@ let step_tests : test_block =
   , [%show : result test_result]
   )
 
-let infer_tests = 
+(* let infer_tests = 
   (* pid = ΛX.λ(x:X).x 
    * pid : ∀X.X→X
    *)
@@ -1130,10 +1137,10 @@ let infer_tests =
    * weird1 : pidpairt
    *)
   let _weird1 : exp = TyApply(BigLambda("Y",_pidpair),Nat) in
-  (* weird2 = ∀Y.pidpair[Y]
+  weird2 = ∀Y.pidpair[Y]
    * weird2 : ∀Y.[X↦Y](∀Y.(X→X)×(Y→Y))
    * weird2 : ∀Y.∀Y′.(Y→Y)×(Y′→Y′)
-   *)
+  
   let _weird2 : exp = BigLambda("Y",TyApply(_pidpair,TVar("Y"))) in
   let _weird2t : ty = Forall("Y",Forall("Y'",Prod(Fun(TVar("Y"),TVar("Y")),Fun(TVar("Y'"),TVar("Y'"))))) in
   (* weird3 = ΛY′.ΛY.(ΛX.ΛY.⟨⟨(λ(x:Y′).x),(λ(x:X).x)⟩,(λ(x:Y).x)⟩)[Y]
@@ -1184,6 +1191,6 @@ let infer_tests =
 
 let _ = 
   _SHOW_PASSED_TESTS := false ;
-  run_tests [step_tests;infer_tests]
+  run_tests [step_tests;infer_tests] *)
 
 (* Name: <your name> *)
