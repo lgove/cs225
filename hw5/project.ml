@@ -1,78 +1,8 @@
-(* Name: LeAnn Gove *)
-(*Collaboration statement: I worked with Madison Anderson on this homework and received help from Ramy Koudsi*)
-(* Course: UVM CS 225 Spring 2018 - Darais *)
-(* HW: HW5 *)
+(* Name: Nikki Allen, Madison Anderson and LeAnn Gove *)
+(* Final Project*)
 
 open Util
 open StringSetMap
-
-(* The Assignment:
- * 
- * Fill in the `raise TODO` parts of the code:
- * - 22 cases in the `step` function
- * - 07 cases in the `scope_ok` function
- * - 08 cases in the `infer` function
- *
- * See the writeup for the specification for `step`, `scope_ok` and `infer`
- * functions that you must implement.
- *
- * Passing all of the tests does not guarantee 100%. You may want to write some
- * tests of your own.
- *
- * The last case of `infer` is for unpack expressions. In both the writeup and
- * code we define an alternative (and equivalent) rule [Unpack-Alt] which is
- * more suggestive of an implementation than the original rule [Unpack].
- *
- * If you ever need to compare two types for equality, use the function tequal,
- * and not (=). tequal will compare types for alpha-equivalence, e.g., ∀X.X and
- * ∀Y.Y are alpha equivalent, so tequal (∀Y.Y) (∀X.X) will return true, whereas
- * (∀Y.Y) = (∀X.X) using OCaml's (=) operation will return false.
- *
- * You may find the following functions helpful:
- *
- * The empty string set: 
- *   
- *   on paper: {}
- *   in OCaml: StringSet.empty
- *
- * The singleton string set:
- *
- *   on paper: {x}
- *   in OCaml: StringSet.singleton x
- *   or      : StringSet.of_list [x]
- *
- * String set union:
- *
- *   on paper: S₁ ∪ S₂
- *   in OCaml: StringSet.union s1 s2
- *
- * Removing from a string set:
- *
- *   on paper: S \ {x}
- *   in OCaml: StringSet.remove x s
- *
- * Testing membership in a string set:
- *
- *   on paper: x ∈ S
- *   in OCaml: StringSet.mem x s
- *
- * Analogously for maps:
- *
- *   on paper: {}
- *   in OCaml: StringMap.empty
- *
- *   on paper: {x ↦ τ}
- *   in OCaml: StringMap.singleton x t
- *
- *   on paper: Γ[x ↦ τ]
- *   in OCaml: StringMap.add x t g
- *
- *   on paper Γ(x) = τ
- *   in OCaml: StringMap.find x g = t
- *
- * Remember to always use OCaml's structural equality (=), and never use
- * physical equality (==).
- *)
 
 (********************
  * Syntax for types *
@@ -86,14 +16,15 @@ type tvar = string
 (* τ ∈ type ⩴ bool | nat | top | τ × τ | τ → τ | X | ∀X.τ | ∃X.τ
  *)
 type ty =
+  | Top
   | Bool
   | Nat
-  | Top
   | Prod of ty * ty
   | Fun of ty * ty
   | TVar of tvar
   | Forall of tvar * ty
   | Exists of tvar * ty
+  | Universal of tvar * ty * ty
 
 [@@deriving show {with_path = false}]
 
@@ -169,12 +100,17 @@ type value =
  * Syntax for type system contexts *
  ***********************************)
 
-(* Γ ∈ tenv ≔ var ⇀ type
+(* S ∈ scope ≔ var ⇀ type
+ *)
+(* type tscope = ty string_map
+[@@deriving show {with_path = false}] *)
+
+(* S ∈ scope ≔ ℘(tvar)
  *)
 type tscope = string_set
 [@@deriving show {with_path = false}]
 
-(* S ∈ scope ≔ ℘(tvar)
+(* Γ ∈ tenv ≔ var ⇀ type
  *)
 type tenv = ty string_map
 [@@deriving show {with_path = false}]
@@ -187,6 +123,7 @@ type tenv = ty string_map
  * tfree_vars τ ≡ FV(τ)
  *)
 let rec tfree_vars (t0 : ty) : string_set = match t0 with
+  | Top -> StringSet.empty
   | Bool -> StringSet.empty
   | Nat -> StringSet.empty
   | Prod(t1,t2) -> StringSet.union (tfree_vars t1) (tfree_vars t2)
@@ -194,7 +131,7 @@ let rec tfree_vars (t0 : ty) : string_set = match t0 with
   | TVar(xt) -> StringSet.of_list [xt]
   | Forall(xt,t) -> StringSet.remove xt (tfree_vars t)
   | Exists(xt,t) -> StringSet.remove xt (tfree_vars t)
-  | Top -> raise TODO
+  | Universal(xt,t1,t2) -> StringSet.remove xt (tfree_vars t2)
 
 (**************************
  * Substitution for types *
@@ -207,6 +144,7 @@ let rec tfree_vars (t0 : ty) : string_set = match t0 with
  * for renaming X to X′ in type τ, i.e., [X↦X′]τ
  *)
 let rec trename (xt : tvar) (xt' : tvar) (t0 : ty) : ty = match t0 with
+  | Top -> Top
   | Bool -> Bool
   | Nat -> Nat
   | Prod(t1,t2) -> Prod(trename xt xt' t1,trename xt xt' t2)
@@ -214,7 +152,7 @@ let rec trename (xt : tvar) (xt' : tvar) (t0 : ty) : ty = match t0 with
   | TVar(yt) -> if xt = yt then TVar(xt') else TVar(yt)
   | Forall(yt,t) -> if xt = yt then Forall(yt,t) else Forall(yt,trename xt xt' t)
   | Exists(yt,t) -> if xt = yt then Exists(yt,t) else Forall(yt,trename xt xt' t)
-  | Top -> raise TODO
+  | Universal(yt,t1,t2) -> if xt = yt then Universal(yt,t1,t2) else Universal(yt,t1,trename xt xt' t2)
 
 (* An auxiliary function:
  *
@@ -251,6 +189,7 @@ let tfresh (xt : tvar) (t' : ty) (t : ty) : tvar * ty = tfresh_i xt xt t' t
  * tsubst X τ′ τ ≡ [X↦τ′]τ
  *)
 let rec tsubst (xt : tvar) (t' : ty) (t0 : ty) = match t0 with
+  | Top -> Top 
   | Bool -> Bool
   | Nat -> Nat
   | Prod(t1,t2) -> Prod(tsubst xt t' t1,tsubst xt t' t2)
@@ -264,7 +203,10 @@ let rec tsubst (xt : tvar) (t' : ty) (t0 : ty) = match t0 with
       if xt = yt then Exists(xt,t) else 
       let (yt'',t'') = tfresh yt t' t in
       Exists(yt'',tsubst xt t' t'')
-  | Top -> raise TODO
+  | Universal(yt,t1,t2) -> 
+    if xt = yt then Universal(xt,t1,t2) else 
+    let (yt'',t'') = tfresh yt t' t2 in
+    Universal(yt'',t1, tsubst xt t' t'')
 
 (**********************************
  * Free variables for expressions *
@@ -782,7 +724,10 @@ let rec step_star (e : exp) : exp = match step e with
  *
  * scope_ok S τ = true ⟺  S ⊢ τ
  *)
-(* let rec scope_ok (s : tscope) (t0 : ty) : bool = match t0 with
+ let rec scope_ok (s : tscope) (t0 : ty) : bool = match t0 with
+  (* [Top]
+   * S ⊢ Top *)
+  | Top -> true 
   (* [Bool]
    * S ⊢ bool *)
   | Bool -> true
@@ -817,16 +762,83 @@ let rec step_star (e : exp) : exp = match step e with
   | Forall(xt,t) -> let x = StringSet.singleton xt in
   let y = StringSet.union s x in
   scope_ok y t
-
-
   (* [Exists]
    * S∪{X} ⊢ τ
    * ⟹
    * S ⊢ ∃X.τ *)
   | Exists(xt,t) -> let x = StringSet.singleton xt in
   let y = StringSet.union s x in
-  scope_ok y t *)
+  scope_ok y t
+  | Universal(xt,t1,t2) -> let x = StringSet.singleton xt in
+  let y = StringSet.union s x in
+  scope_ok y t2
 
+ (**********************
+ * Well-subtyped relation
+ **********************)
+
+(* The relation:
+ *
+ *   S ⊢ τ
+ *
+ * is_subtype S τ = true ⟺  S ⊢ τ
+ *)
+ let rec is_subtype (t1 : ty) (t2 : ty) : bool = match t2 with
+  (* [Top]
+   * Γ ⊢ S <: Top *)
+  | Top -> begin match t1 with
+    | _ -> true
+  end
+  (* [Bool]
+   * S ⊢ bool *)
+  | Bool -> begin match t1 with
+    | Bool -> true
+    | _ -> false
+  end
+  (* [Nat]
+   * S ⊢ nat *)
+  | Nat -> begin match t1 with 
+    | Nat -> true
+    | _ -> false
+  end
+  (* [Prod]
+   * S ⊢ τ₁
+   * S ⊢ τ₂
+   * ⟹
+   * S ⊢ τ₁ × τ₂ *)
+  | Prod(t3,t4) -> begin match t1 with
+    | Prod(t1,t2) -> is_subtype t1 t3 && is_subtype t2 t4
+    | _ -> false
+  end
+  (* [Fun]
+   * S ⊢ τ₁
+   * S ⊢ τ₂
+   * ⟹
+   * S ⊢ τ₁ → τ₂ *)
+  | Fun(t21,t22) -> begin match t1 with
+      | Fun(t11,t12) -> is_subtype t21 t11 && is_subtype t12 t22
+      | _ -> false
+  end
+  (* [TVar]
+   * X <: T ∈ Γ
+   * ⟹
+   * Γ ⊢ X <: T *)
+  | TVar(yt) ->  begin match t1 with
+      | TVar(xt) -> true
+      | _ -> false
+    end
+  | Forall(yt,t) -> begin match t1 with
+      | Forall(xt,t) -> true
+      | _ -> false
+    end
+  | Exists(yt,t)-> begin match t1 with
+      | Exists(xt,t) -> true
+      | _ -> false
+    end
+  | Universal(yt,u1,s2) -> begin match t1 with
+      | Universal(xt,u11,s21) ->  if (is_subtype (TVar(xt)) u1) then true else false
+      | _ -> false
+    end
 
 (***********************
  * Well-typed relation *
@@ -839,6 +851,7 @@ let rec step_star (e : exp) : exp = match step e with
  * equal by assigning them to unique numbers.
  *)
 let rec tequal_r (l : int) (t1e : int string_map) (t2e : int string_map) (t1 : ty) (t2 : ty) : bool = match t1 , t2 with
+  | Top , Top -> true 
   | Bool , Bool -> true
   | Nat , Nat -> true
   | Fun(t11,t12) , Fun(t21,t22) -> tequal_r l t1e t2e t11 t21 && tequal_r l t1e t2e t12 t22
@@ -867,7 +880,7 @@ exception TYPE_ERROR
  *
  * infer S Γ e = τ ⟺  S , Γ ⊢ : τ
  *)
-(* let rec infer (s : tscope) (g : tenv) (e0 : exp) : ty = match e0 with
+let rec infer (s : tscope) (g : tenv) (e0 : exp) : ty = match e0 with
   (* [True]
    * S , Γ ⊢ true : bool *)
   | True -> Bool
@@ -954,67 +967,61 @@ exception TYPE_ERROR
    * ⟹
    * S , Γ ⊢ let x ≔ e₁ in e₂ : τ₂ *)
   | Let(x,e1,e2) -> let t1 = infer s g e1 in
-  let z = StringMap.add x t1 g in 
-  let t2 = infer s z e2 in
-  t2
-
+      let z = StringMap.add x t1 g in 
+      let t2 = infer s z e2 in
+      t2
   (* [Lambda]S
    * S ⊢ τ₁
    * S , Γ[x↦τ₁] ⊢ e : τ₂
    * ⟹
    * S , Γ ⊢ λ(x:τ₁).e : τ₁ → τ₂ *)
   | Lambda(x,t1,e) -> if (scope_ok s t1) then
-  let t12 = StringMap.add x t1 g in
-  let t2 = infer s t12 e in
-  Fun(t1,t2)
-  else raise TYPE_ERROR
-
+      let t12 = StringMap.add x t1 g in
+      let t2 = infer s t12 e in
+      Fun(t1,t2)
+      else raise TYPE_ERROR
   (* [Apply]
    * S , Γ ⊢ e₁ : τ₁ → τ₂
    * S , Γ ⊢ e₂ : τ₁
    * ⟹
    * S , Γ ⊢ e₁(e₂) : τ₂ *)
   | Apply(e1,e2) -> let t = infer s g e1 in
-  let t1 = infer s g e2 in 
-  begin match t with 
-    |Fun(t11,t2) -> if (tequal t11 t1) then t2 else raise TYPE_ERROR
-    | _ -> raise TYPE_ERROR
-  end
+      let t1 = infer s g e2 in 
+      begin match t with 
+        |Fun(t11,t2) -> if (tequal t11 t1) then t2 else raise TYPE_ERROR
+        | _ -> raise TYPE_ERROR
+      end
   (* [TypeLambda]
    * S∪{X} , Γ ⊢ e : τ
    * ⟹
    * S , Γ ⊢ ΛX.e : ∀X.τ *)
   | BigLambda(xt,e) ->
-  let y = StringSet.of_list [xt] in
-  let z = StringSet.union s y in
-  let t1 = infer z g e in
- Forall(xt,t1)
+      let y = StringSet.of_list [xt] in
+      let z = StringSet.union s y in
+      let t1 = infer z g e in
+      Forall(xt,t1)
 
   (* [TypeApply]
    * S ⊢ τ′
    * S , Γ ⊢ e : ∀X.τ
    * ⟹
    * S , Γ ⊢ e[τ′] : [X↦τ′]τ *)
-  | TyApply(e,t') -> 
-  if (scope_ok s t') then
-  let t1 = infer s g e in
-  begin match t1 with
-    |Forall(xt,t) -> tsubst xt t' t
-    | _ -> raise TYPE_ERROR
-  end
-else raise TYPE_ERROR
-
+  | TyApply(e,t') -> if (scope_ok s t') then
+      let t1 = infer s g e in
+      begin match t1 with
+        |Forall(xt,t) -> tsubst xt t' t
+        | _ -> raise TYPE_ERROR
+      end
+      else raise TYPE_ERROR
   (* [Pack]
    * S , Γ ⊢ e : [X↦τ′]τ
    * ⟹
    * S , Γ ⊢ ⟨*τ′,e⟩ as ∃ X.τ : ∃X.τ *)
   | Pack(t1,e,xt,t2) -> 
-  let t11 = infer s g e in
-  let boom = tsubst xt t1 t2 in
-  if (tequal t11 boom) then
-  Exists(xt,t2)
-else raise TYPE_ERROR
-
+      let t11 = infer s g e in
+      let boom = tsubst xt t1 t2 in
+      if (tequal t11 boom) then Exists(xt,t2)
+      else raise TYPE_ERROR
   (* [Unpack-Alt]
    * S ⊢ τ₂
    * S , Γ ⊢ e₁ : ∃Y.τ₁
@@ -1022,175 +1029,29 @@ else raise TYPE_ERROR
    * ⟹
    * let ⟨*X,x⟩ ≔ e₁ in e₂ : τ₂ *)
   | Unpack(xt,x,e1,e2) -> 
-    let type_of_e1 = infer s g e1 in
-    begin match type_of_e1 with
-      |Exists(y,t1) -> 
-      (*THIRD RULE*)
-      let beep = StringSet.of_list [xt] in
-      let z = StringSet.union s beep in
+      let type_of_e1 = infer s g e1 in
+      begin match type_of_e1 with
+        | Exists(y,t1) -> 
+        (* THIRD RULE *)
+        let beep = StringSet.of_list [xt] in
+        let z = StringSet.union s beep in
 
-      let sub = tsubst y (TVar(xt)) t1 in
-      let finalsub = StringMap.add x sub g in 
+        let sub = tsubst y (TVar(xt)) t1 in
+        let finalsub = StringMap.add x sub g in 
 
-      let t2 = infer z finalsub e2 in
-      if (scope_ok s t2) then t2 
-     else raise TYPE_ERROR
-      | _ -> raise TYPE_ERROR
-    end *)
+        let t2 = infer z finalsub e2 in
+        if (scope_ok s t2) then t2 else raise TYPE_ERROR
+        | _ -> raise TYPE_ERROR
+      end
+  | Abstraction(xt,t1,t12) ->
+      let t2 = infer s g t12 in
+      if (is_subtype (TVar(xt)) t1) then Universal(xt,t1,t2) else raise TYPE_ERROR
+  | Apply(t1,t2) -> let t11 = infer s g t1 in
+      let t22 = infer s g t2 in
+        begin match t11 with
+          | Universal(x,t11,t12) -> 
+            if (is_subtype t22 t11) then tsubst x t22 t12 else raise TYPE_ERROR
+          | _ -> raise TYPE_ERROR
+        end
 
-(***********
- * Testing *
- ***********)
-
-type 'a test_result =
-  | R of 'a
-  | TypeError
-  | NotClosedError
-[@@deriving show {with_path = false}]
-
-let step_test_result (e : exp) : result test_result =
-  try
-    R(step e)
-  with
-    | TYPE_ERROR -> TypeError
-    | NOT_CLOSED_ERROR -> NotClosedError
-
-(* let infer_test_result (e : exp) : ty test_result =
-  try
-    R(infer StringSet.empty StringMap.empty e)
-  with
-    | TYPE_ERROR -> TypeError
-    | NOT_CLOSED_ERROR -> NotClosedError *)
-
-let step_tests : test_block =
-  let pid : exp = Abstraction("X",Bool,Lambda("x",TVar("X"),Var("x"))) in
-  (* let pid : exp = BigLambda("X",Lambda("x",TVar("X"),Var("x"))) in *)
-  let pidid : exp = Lambda("x",Forall("X",Fun(TVar("X"),TVar("X"))),Var("x")) in
-  let ppid : exp = BigLambda("X",pid) in
-  let fiveo : exp = Pack(Nat,Pair(Zero,Lambda("x",Nat,Var("x"))),"X",Prod(TVar("X"),Fun(TVar("X"),TVar("X")))) in
-  let unp : exp = Unpack("Y","y",fiveo,Pack(TVar("Y"),Apply(Projr(Var("y")),Projl(Var("y"))),"Z",TVar("Z"))) in
-  TestBlock
-  ( "STEP"
-  , [ pid                           , R(Val(VBigLambda("X",Lambda("x",TVar("X"),Var("x")))))
-    ; TyApply(pid,Nat)              , R(Step(Lambda("x",Nat,Var("x"))))
-    ; TyApply(pid,Bool)             , R(Step(Lambda("x",Bool,Var("x"))))
-    ; TyApply(pid,TVar("Y"))        , NotClosedError
-    ; TyApply(Apply(pidid,pid),Nat) , R(Step(TyApply(pid,Nat)))
-    ; TyApply(ppid,Nat)             , R(Step(pid))
-    ; fiveo                         , R(Val(VPack(Nat,VPair(VNat(VZero),VLambda("x",Nat,Var("x"))),"X",Prod(TVar("X"),Fun(TVar("X"),TVar("X"))))))
-    ; unp                           , R(Step(Pack(Nat,Apply(Projr(Pair(Zero,Lambda("x",Nat,Var("x")))),Projl(Pair(Zero,Lambda("x",Nat,Var("x"))))),"Z",TVar("Z"))))
-    ]
-  , step_test_result
-  , (=)
-  , [%show : exp]
-  , [%show : result test_result]
-  )
-
-(* let infer_tests = 
-  (* pid = ΛX.λ(x:X).x 
-   * pid : ∀X.X→X
-   *)
-  let pid : exp = BigLambda("X",Lambda("x",TVar("X"),Var("x"))) in
-  let pidt : ty = Forall("X",Fun(TVar("X"),TVar("X"))) in
-  (* pidid = λ(x:∀X.X→X).x
-   * pidid = (∀X.X→X) → (∀X.X→X)
-   *)
-  let pidid : exp = Lambda("x",pidt,Var("x")) in
-  let pididt : ty = Fun(pidt,pidt) in
-  (* ppid = ΛX.ΛX.λ(x:X).x
-   * ppid = ∀X.∀X.X→X
-   *)
-  let ppid : exp = BigLambda("X",pid) in
-  let ppidt : ty = Forall("X",pidt) in
-  (* fiveo = ⟨*nat,⟨0,(λ(x:nat).x)⟩⟩ as ∃X.X×(X→X) 
-   * fiveo : ∃X.X×(X→X)
-   *)
-  let fiveo : exp = Pack(Nat,Pair(Zero,Lambda("x",Nat,Var("x"))),"X",Prod(TVar("X"),Fun(TVar("X"),TVar("X")))) in
-  let fiveot = Exists("X",Prod(TVar("X"),Fun(TVar("X"),TVar("X")))) in
-  (* fiveo′ = ⟨*nat,⟨0,(λ(x:nat).x)⟩⟩ as ∃X.X×(X→nat) 
-   * fiveo′ : ∃X.X×(X→X)
-   *)
-  let fiveo' : exp = Pack(Nat,Pair(Zero,Lambda("x",Nat,Var("x"))),"X",Prod(TVar("X"),Fun(TVar("X"),Nat))) in
-  let fiveo't = Exists("X",Prod(TVar("X"),Fun(TVar("X"),Nat))) in
-  (* fiveobad = ⟨*nat,⟨0,(λ(x:nat).x)⟩⟩ as ∃X.X×(X→bool) 
-   *)
-  let fiveobad : exp = Pack(Nat,Pair(Zero,Lambda("x",Nat,Var("x"))),"X",Prod(TVar("X"),Fun(TVar("X"),Bool))) in
-  (* unp = let ⟨*Y,y⟩ ≔ ⟨*nat,⟨0,(λ(x:nat).x)⟩⟩ as ∃X.X×(X→X) in ⟨*Y,projr(y)(projl(y))⟩ as ∃Z.Z
-   * unp : ∃Z.Z
-   *)
-  let unp : exp = Unpack("Y","y",fiveo,Pack(TVar("Y"),Apply(Projr(Var("y")),Projl(Var("y"))),"Z",TVar("Z"))) in
-  let unpt : ty = Exists("Z",TVar("Z")) in
-  (* unp' = let ⟨*Y,y⟩ ≔ ⟨*nat,⟨0,(λ(x:nat).x)⟩⟩ as ∃X.X×(X→X) in ⟨*Y,pid[Y](projr(y)(projl(y)))⟩ as ∃Z.Z
-   * unp' : ∃Z.Z
-   *)
-  let unp' : exp = Unpack("Y","y",fiveo,Pack(TVar("Y"),Apply(TyApply(pid,TVar("Y")),Apply(Projr(Var("y")),Projl(Var("y")))),"Z",TVar("Z"))) in
-  let unp't : ty = Exists("Z",TVar("Z")) in
-  (* bunp = let ⟨*Y,y⟩ ≔ ⟨*nat,⟨0,(λ(x:nat).x)⟩⟩ as ∃X.X×(X→X) in projr(y)(projl(y)) *)
-  let bunp : exp = Unpack("Y","y",fiveo,Apply(Projr(Var("y")),Projl(Var("y")))) in
-  (* pidpair = ΛX.ΛY.⟨(λ(x:X).x),(λ(x:Y).x)⟩
-   * pidpair : ∀X.∀Y.(X→X)×(Y→Y)
-   *)
-  let _pidpair : exp = BigLambda("X",BigLambda("Y",Pair(TyApply(pid,TVar("X")),TyApply(pid,TVar("Y"))))) in
-  let _pidpairt : ty = Forall("X",Forall("Y",Prod(Fun(TVar("X"),TVar("X")),Fun(TVar("Y"),TVar("Y"))))) in
-  (* weird1 = (ΛY.pidpair)[nat]
-   * weird1 : [Y↦nat](∀X.∀Y.(X→X)×(Y→Y)
-   * weird1 : pidpairt
-   *)
-  let _weird1 : exp = TyApply(BigLambda("Y",_pidpair),Nat) in
-  weird2 = ∀Y.pidpair[Y]
-   * weird2 : ∀Y.[X↦Y](∀Y.(X→X)×(Y→Y))
-   * weird2 : ∀Y.∀Y′.(Y→Y)×(Y′→Y′)
-  
-  let _weird2 : exp = BigLambda("Y",TyApply(_pidpair,TVar("Y"))) in
-  let _weird2t : ty = Forall("Y",Forall("Y'",Prod(Fun(TVar("Y"),TVar("Y")),Fun(TVar("Y'"),TVar("Y'"))))) in
-  (* weird3 = ΛY′.ΛY.(ΛX.ΛY.⟨⟨(λ(x:Y′).x),(λ(x:X).x)⟩,(λ(x:Y).x)⟩)[Y]
-   * weird3 : ∀Y′.∀Y.[X↦Y](∀Y.(Y′→Y′)×(X→X)×(Y→Y))
-   * weird3 : ∀Y′.∀Y.∀Y″.(Y′→Y′)×(Y→Y)×(Y″→Y″)
-   *)
-  let _weird3 : exp = BigLambda("Y'",BigLambda("Y"
-                    ,TyApply
-                    (BigLambda("X",BigLambda("Y"
-                      ,Pair(Pair(TyApply(pid,TVar("Y'")),TyApply(pid,TVar("X"))),TyApply(pid,TVar("Y")))))
-                    ,TVar("Y")))) in
-  let _weird3t : ty = Forall("Y'",Forall("Y",Forall("Y''"
-                       ,Prod(Prod(Fun(TVar("Y'"),TVar("Y'")),Fun(TVar("Y"),TVar("Y"))),Fun(TVar("Y''"),TVar("Y''")))))) in
-  TestBlock
-  ( "INFER"
-  , [ Let("x",Zero,Var("x"))                , R(Nat)
-    ; Lambda("x",Nat,Var("x"))              , R(Fun(Nat,Nat))
-    ; Lambda("x",TVar("X"),Var("x"))        , TypeError
-    ; Apply(Lambda("x",Nat,Var("x")),Zero)  , R(Nat)
-    ; Apply(Lambda("x",Nat,Var("x")),True)  , TypeError
-    ; pid                                   , R(pidt)
-    ; TyApply(pid,Nat)                      , R(Fun(Nat,Nat))
-    ; TyApply(pid,Bool)                     , R(Fun(Bool,Bool))
-    ; TyApply(pid,TVar("Y"))                , TypeError
-    ; pidid                                 , R(pididt)
-    ; TyApply(Apply(pidid,pid),Nat)         , R(Fun(Nat,Nat))
-    ; ppid                                  , R(ppidt)
-    ; TyApply(ppid,Nat)                     , R(pidt)
-    ; fiveo                                 , R(fiveot)
-    ; fiveo'                                , R(fiveo't)
-    ; fiveobad                              , TypeError
-    ; unp                                   , R(unpt)
-    ; unp'                                  , R(unp't)
-    ; bunp                                  , TypeError
-    (* SANITY CHECKS FOR HELPER CODE --- NOT PART OF GRADE *)
-    (*
-    ; _pidpair                               , R(_pidpairt)
-    ; _weird1                                , R(_pidpairt)
-    ; _weird2                                , R(_weird2t)
-    ; _weird3                                , R(_weird3t)
-    *)
-    ]
-  , infer_test_result
-  , (=)
-  , [%show : exp]
-  , [%show : ty test_result]
-  )
-
-let _ = 
-  _SHOW_PASSED_TESTS := false ;
-  run_tests [step_tests;infer_tests] *)
-
-(* Name: <your name> *)
+(* Name: Nikki Allen, Madison Anderson and LeAnn Gove *)
